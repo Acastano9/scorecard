@@ -9,7 +9,7 @@ import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from dataclasses import dataclass
-from .config_utils import ConfigManager
+from config_utils import ConfigManager
 
 
 @dataclass

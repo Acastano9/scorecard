@@ -11,16 +11,15 @@ Usage:
 Options:
     --directory <path>    Specify directory containing HOS violation files
     --debug              Enable debug mode with additional logging
-    --interactive        Run in interactive mode with menu
-    --analyze           Perform analysis of processed violations
     --file <path>       Process a specific file instead of directory
+    --dry-run           Perform a dry run without saving to the database
     --help              Show this help message
 
 Examples:
     python hos_violations_etl.py
     python hos_violations_etl.py --directory ./custom_data --debug
-    python hos_violations_etl.py --file violations.json --analyze
-    python hos_violations_etl.py --interactive
+    python hos_violations_etl.py --file violations.json
+    python hos_violations_etl.py --dry-run
 """
 
 import logging
@@ -28,6 +27,7 @@ import sys
 import os
 import argparse
 from pathlib import Path
+import json
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -63,14 +63,14 @@ def setup_directories():
         Path(directory).mkdir(parents=True, exist_ok=True)
         
 
-def process_hos_violations(directory=None, specific_file=None, analyze=False):
+def process_hos_violations(directory=None, specific_file=None, dry_run=False):
     """
     Main function to process HOS violations data.
     
     Args:
         directory: Directory containing HOS violation files
         specific_file: Specific file to process
-        analyze: Whether to perform analysis
+        dry_run: If True, performs a dry run without saving to the database
     
     Returns:
         Exit code (0 for success, 1 for failure)
@@ -123,6 +123,17 @@ def process_hos_violations(directory=None, specific_file=None, analyze=False):
             logging.warning("No valid HOS violation data found")
             return 1
         
+        if dry_run:
+            logging.info("Performing a dry run. Data will not be saved to the database.")
+            print("\n" + "="*60)
+            print("DRY RUN - PROCESSED HOS VIOLATIONS")
+            print("="*60)
+            print(json.dumps(violations, indent=4, default=str))
+            print(f"\nFound {len(violations)} violations.")
+            print("="*60)
+            logging.info("Dry run complete. Data was not saved.")
+            return 0
+        
         # Store in database
         with DatabaseManager(config) as db_manager:
             if not db_manager.connection:
@@ -134,46 +145,6 @@ def process_hos_violations(directory=None, specific_file=None, analyze=False):
             if not success:
                 logging.error("Failed to insert HOS violations into database")
                 return 1
-            
-            # Perform analysis if requested
-            if analyze:
-                logging.info("Performing HOS violations analysis...")
-                analysis = processor.analyze_violations(violations)
-                
-                if analysis:
-                    print("\n" + "="*60)
-                    print("HOS VIOLATIONS ANALYSIS REPORT")
-                    print("="*60)
-                    print(f"Total violations: {analysis['total_violations']}")
-                    print(f"Unique drivers: {analysis['unique_drivers']}")
-                    print(f"Unique violation types: {analysis['unique_violation_types']}")
-                    print(f"Unique terminals: {analysis['unique_terminals']}")
-                    
-                    print(f"\nDate range: {analysis['date_range']['earliest']} to {analysis['date_range']['latest']}")
-                    
-                    print("\nTop 5 drivers with most violations:")
-                    for i, (driver, count) in enumerate(analysis['top_drivers'][:5], 1):
-                        print(f"  {i}. {driver}: {count} violations")
-                    
-                    print("\nViolation type distribution:")
-                    for violation_type, count in analysis['violation_type_distribution']:
-                        print(f"  {violation_type}: {count} violations")
-                    
-                    if analysis['top_terminals']:
-                        print("\nTop terminals with violations:")
-                        for i, (terminal, count) in enumerate(analysis['top_terminals'][:5], 1):
-                            print(f"  {i}. {terminal}: {count} violations")
-                    
-                    print("="*60)
-                
-                # Also get database summary
-                summary = db_manager.get_hos_violations_summary()
-                if summary:
-                    print("\nDatabase Summary (All Time):")
-                    print(f"Total drivers with violations: {len(summary)}")
-                    for i, driver_info in enumerate(summary[:10], 1):
-                        print(f"  {i}. {driver_info['Driver_Name']} ({driver_info['Driver_ID']}): "
-                              f"{driver_info['violation_count']} violations")
         
         logging.info("HOS violations ETL process completed successfully")
         return 0
@@ -181,82 +152,6 @@ def process_hos_violations(directory=None, specific_file=None, analyze=False):
     except Exception as e:
         logging.error(f"Unexpected error in HOS violations ETL: {e}")
         return 1
-
-
-def interactive_mode():
-    """Run HOS violations ETL in interactive mode."""
-    print("\n" + "="*60)
-    print("HOS VIOLATIONS ETL - INTERACTIVE MODE")
-    print("="*60)
-    
-    while True:
-        print("\nAvailable options:")
-        print("1. Process all files in default directory")
-        print("2. Process files in custom directory")
-        print("3. Process specific file")
-        print("4. Process with analysis")
-        print("5. View current database summary")
-        print("6. Exit")
-        
-        choice = input("\nSelect an option (1-6): ").strip()
-        
-        if choice == '1':
-            print("\nProcessing all files in 'hos_violations_data' directory...")
-            exit_code = process_hos_violations()
-            print(f"Process completed with exit code: {exit_code}")
-            
-        elif choice == '2':
-            directory = input("Enter directory path: ").strip()
-            if directory:
-                print(f"\nProcessing all files in '{directory}' directory...")
-                exit_code = process_hos_violations(directory=directory)
-                print(f"Process completed with exit code: {exit_code}")
-            else:
-                print("Invalid directory path")
-                
-        elif choice == '3':
-            file_path = input("Enter file path: ").strip()
-            if file_path:
-                print(f"\nProcessing file '{file_path}'...")
-                exit_code = process_hos_violations(specific_file=file_path)
-                print(f"Process completed with exit code: {exit_code}")
-            else:
-                print("Invalid file path")
-                
-        elif choice == '4':
-            directory = input("Enter directory path (or press Enter for default): ").strip()
-            directory = directory if directory else None
-            print(f"\nProcessing with analysis...")
-            exit_code = process_hos_violations(directory=directory, analyze=True)
-            print(f"Process completed with exit code: {exit_code}")
-            
-        elif choice == '5':
-            try:
-                config = ConfigManager()
-                with DatabaseManager(config) as db_manager:
-                    if db_manager.connection:
-                        summary = db_manager.get_hos_violations_summary()
-                        if summary:
-                            print(f"\nHOS Violations Database Summary:")
-                            print(f"Total drivers with violations: {len(summary)}")
-                            print("\nTop 10 drivers:")
-                            for i, driver_info in enumerate(summary[:10], 1):
-                                print(f"  {i}. {driver_info['Driver_Name']} ({driver_info['Driver_ID']}): "
-                                      f"{driver_info['violation_count']} violations - "
-                                      f"Latest: {driver_info['latest_violation']}")
-                        else:
-                            print("No HOS violations found in database")
-                    else:
-                        print("Could not connect to database")
-            except Exception as e:
-                print(f"Error retrieving database summary: {e}")
-                
-        elif choice == '6':
-            print("Exiting...")
-            break
-            
-        else:
-            print("Invalid option. Please select 1-6.")
 
 
 def debug_mode():
@@ -308,16 +203,15 @@ def main():
 Examples:
   python hos_violations_etl.py
   python hos_violations_etl.py --directory ./custom_data --debug
-  python hos_violations_etl.py --file violations.json --analyze
-  python hos_violations_etl.py --interactive
+  python hos_violations_etl.py --file violations.json
+  python hos_violations_etl.py --dry-run
         """
     )
     
     parser.add_argument('--directory', '-d', help='Directory containing HOS violation files')
     parser.add_argument('--file', '-f', help='Process specific file instead of directory')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
-    parser.add_argument('--interactive', '-i', action='store_true', help='Run in interactive mode')
-    parser.add_argument('--analyze', '-a', action='store_true', help='Perform analysis of processed violations')
+    parser.add_argument('--dry-run', action='store_true', help='Perform a dry run without saving to the database')
     
     args = parser.parse_args()
     
@@ -327,14 +221,11 @@ Examples:
     # Handle different modes
     if args.debug:
         return debug_mode()
-    elif args.interactive:
-        interactive_mode()
-        return 0
     else:
         return process_hos_violations(
             directory=args.directory,
             specific_file=args.file,
-            analyze=args.analyze
+            dry_run=args.dry_run
         )
 
 

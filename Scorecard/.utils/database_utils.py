@@ -5,7 +5,7 @@ Database utilities for Netradyne data processing.
 import pyodbc
 import logging
 from typing import Optional, List, Dict, Any
-from .config_utils import ConfigManager
+from config_utils import ConfigManager
 
 
 class DatabaseManager:
